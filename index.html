@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>계단뿌셔클럽 · 26 봄시즌 현황판</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--text:#1a1a1a;--sub:#888;--green:#22c55e;--yellow:#eab308;--red:#ef4444;--blue:#3b82f6;--accent:#10b981}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);max-width:480px;margin:0 auto;padding:0 0 80px;min-height:100vh}
+.header{background:linear-gradient(135deg,#059669,#10b981);color:#fff;padding:20px 16px 16px;text-align:center}
+.header h1{font-size:15px;font-weight:600;opacity:.85;letter-spacing:1px}
+.header h2{font-size:20px;font-weight:700;margin-top:4px}
+.tabs{display:flex;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:10}
+.tab{flex:1;padding:12px;text-align:center;font-size:14px;font-weight:600;color:var(--sub);cursor:pointer;border-bottom:2px solid transparent;transition:.2s}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.content{padding:12px}
+.card{background:var(--card);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.card-title{font-size:13px;font-weight:600;color:var(--sub);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.big-num{font-size:32px;font-weight:800;line-height:1.1}
+.big-num span{font-size:16px;font-weight:500;color:var(--sub)}
+.pct{font-size:24px;font-weight:700;color:var(--accent)}
+.bar-wrap{background:#e5e7eb;border-radius:8px;height:10px;margin:10px 0 6px;overflow:hidden}
+.bar-fill{height:100%;border-radius:8px;transition:width .6s ease}
+.bar-green{background:linear-gradient(90deg,#059669,#10b981)}
+.bar-blue{background:linear-gradient(90deg,#2563eb,#3b82f6)}
+.subtitle{font-size:12px;color:var(--sub)}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
+th{text-align:center;font-weight:600;color:var(--sub);padding:6px 4px;border-bottom:2px solid #e5e7eb;font-size:11px}
+td{text-align:center;padding:7px 4px;border-bottom:1px solid #f3f4f6}
+tr.current{background:#fef3c7;font-weight:600}
+.s-green{color:var(--green)}
+.s-yellow{color:var(--yellow)}
+.s-red{color:var(--red);font-weight:600}
+.s-wait{color:var(--sub)}
+.badge{display:inline-block;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:600}
+.b-green{background:#dcfce7;color:#166534}
+.b-yellow{background:#fef9c3;color:#854d0e}
+.b-red{background:#fee2e2;color:#991b1b}
+.cta{display:block;text-align:center;background:linear-gradient(135deg,#059669,#10b981);color:#fff;padding:14px;border-radius:12px;font-size:15px;font-weight:700;text-decoration:none;margin:16px 0 8px;box-shadow:0 2px 8px rgba(16,185,129,.3)}
+.cta:active{transform:scale(.98)}
+.team-group{margin-bottom:12px}
+.team-label{font-size:13px;font-weight:700;margin-bottom:4px}
+.team-list{font-size:12px;color:#555;line-height:1.6}
+.loading{text-align:center;padding:60px 20px;color:var(--sub);font-size:14px}
+.refresh-btn{position:fixed;bottom:16px;right:16px;width:48px;height:48px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:20px;box-shadow:0 2px 12px rgba(0,0,0,.2);cursor:pointer;z-index:20;display:flex;align-items:center;justify-content:center}
+.refresh-btn:active{transform:scale(.9)}
+.spin{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hidden{display:none}
+.updated{text-align:center;font-size:11px;color:var(--sub);padding:8px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>계단뿌셔클럽</h1>
+  <h2>'26 봄시즌 현황판</h2>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="conquest">🏔️ 정복크루</div>
+  <div class="tab" data-tab="editor">✍️ 에디터크루</div>
+</div>
+
+<div id="conquest" class="content">
+  <div class="loading" id="loading-c">데이터를 불러오는 중...</div>
+</div>
+
+<div id="editor" class="content hidden">
+  <div class="loading" id="loading-e">데이터를 불러오는 중...</div>
+</div>
+
+<button class="refresh-btn" id="refreshBtn" title="새로고침">↻</button>
+<div class="updated" id="updatedAt"></div>
+
+<script>
+const SHEET_ID = '1ht9h27o5bHTc4RaTazxMFHEjzOce3rFnugzqwGiscns';
+
+// Tab switching
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelectorAll('.content').forEach(c => c.classList.add('hidden'));
+    document.getElementById(t.dataset.tab).classList.remove('hidden');
+  });
+});
+
+// Fetch from Google Visualization API
+async function fetchSheet(sheetName, range) {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}&range=${encodeURIComponent(range)}`;
+  const res = await fetch(url);
+  const text = await res.text();
+  const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]+?)\);?\s*$/);
+  if (!match) throw new Error('Parse error');
+  const data = JSON.parse(match[1]);
+  return data.table.rows.map(r => (r.c || []).map(c => c ? (c.v ?? '') : ''));
+}
+
+function num(v) {
+  if (typeof v === 'number') return v;
+  if (!v) return 0;
+  return Number(String(v).replace(/,/g, '')) || 0;
+}
+
+function statusBadge(cls, text) {
+  return `<span class="badge b-${cls}">${text}</span>`;
+}
+
+// ── Conquest Dashboard ──
+async function renderConquest() {
+  const el = document.getElementById('conquest');
+  try {
+    const [weekRows, guestRows] = await Promise.all([
+      fetchSheet('정복크루 현황판', 'A1:E18'),
+      fetchSheet('정복크루 현황판', 'A20:E60'),
+    ]);
+
+    // Parse big number from row 2 (index 1)
+    const bigText = String(weekRows[1]?.[0] || '');
+    const pctText = String(weekRows[1]?.[4] || '');
+    const subtitleText = String(weekRows[3]?.[0] || '');
+
+    // Extract current total and target
+    const currentMatch = bigText.match(/([\d,]+)/);
+    const current = currentMatch ? num(currentMatch[1]) : 0;
+    const target = 16000;
+    const pct = target > 0 ? (current / target * 100) : 0;
+
+    // Parse weekly data (rows 8-17, index 7-16)
+    let weeklyHtml = '';
+    for (let i = 7; i < weekRows.length; i++) {
+      const r = weekRows[i];
+      if (!r || !r[0]) continue;
+      const label = String(r[0]);
+      const wTarget = r[1];
+      const wActual = r[2];
+      const cumul = r[3];
+      const status = String(r[4] || '');
+
+      const isCurrent = status.includes('⏳');
+      const isCompleted = num(wActual) > 0 || num(wTarget) === 0 && num(wActual) > 0;
+
+      let sClass = 's-wait';
+      let sText = '-';
+      if (status.includes('🟢')) { sClass = 's-green'; sText = '🟢'; }
+      else if (status.includes('🟡')) { sClass = 's-yellow'; sText = '🟡'; }
+      else if (status.includes('🔴')) { sClass = 's-red'; sText = '🔴'; }
+      else if (status.includes('⏳')) { sClass = 's-wait'; sText = '⏳'; }
+
+      const wActualDisplay = num(wActual) > 0 ? num(wActual).toLocaleString() : '-';
+      const cumulDisplay = cumul && cumul !== '' && num(cumul) > 0 ? num(cumul).toLocaleString() : '';
+      const wTargetDisplay = num(wTarget) > 0 ? num(wTarget).toLocaleString() : '-';
+
+      weeklyHtml += `<tr class="${isCurrent ? 'current' : ''}">
+        <td style="text-align:left;font-size:11px">${label}</td>
+        <td>${wTargetDisplay}</td>
+        <td>${wActualDisplay}</td>
+        <td>${cumulDisplay}</td>
+        <td class="${sClass}">${sText}</td>
+      </tr>`;
+    }
+
+    // Parse guest data (skip header rows)
+    let guestHtml = '';
+    let guestCount = 0;
+    for (let i = 0; i < guestRows.length; i++) {
+      const r = guestRows[i];
+      if (!r || !r[0]) continue;
+      const place = String(r[0]);
+      // Skip section titles and headers
+      if (place.includes('🚨') || place === '장소' || place.includes('빈 자리') || place.includes('초대장')) continue;
+
+      const type = String(r[1] || '');
+      const recruit = r[2];
+      const applied = r[3];
+      const status = String(r[4] || '');
+
+      if (!type || (!type.includes('빅') && !type.includes('스몰'))) continue;
+      guestCount++;
+
+      let bClass = 'b-green';
+      if (status.includes('🔴')) bClass = 'b-red';
+      else if (status.includes('🟡')) bClass = 'b-yellow';
+
+      const shortStatus = status.includes('🔴') ? status.replace('🔴 ', '') : status;
+
+      guestHtml += `<tr>
+        <td style="text-align:left">${place}</td>
+        <td>${type}</td>
+        <td>${recruit}</td>
+        <td>${applied}</td>
+        <td>${statusBadge(bClass.replace('b-',''), shortStatus)}</td>
+      </tr>`;
+    }
+
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-title">🏔️ 시즌 정복량</div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between">
+          <div class="big-num">${current.toLocaleString()} <span>/ ${target.toLocaleString()}</span></div>
+          <div class="pct">${pct.toFixed(1)}%</div>
+        </div>
+        <div class="bar-wrap"><div class="bar-fill bar-green" style="width:${Math.min(pct,100)}%"></div></div>
+        <div class="subtitle">${subtitleText}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📈 주차별 페이스</div>
+        <table>
+          <tr><th style="text-align:left">주차</th><th>목표</th><th>달성</th><th>누적</th><th>상태</th></tr>
+          ${weeklyHtml}
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🚨 게스트 모집 현황 <span style="font-weight:400;color:var(--sub)">(${guestCount}개 활동)</span></div>
+        <table>
+          <tr><th style="text-align:left">장소</th><th>유형</th><th>모집</th><th>신청</th><th>상태</th></tr>
+          ${guestHtml}
+        </table>
+      </div>
+
+      <a class="cta" href="https://forms.staircrusher.club/invitation26ss" target="_blank">
+        친구 초대장 보내기 💚
+      </a>
+      <div style="text-align:center;font-size:12px;color:var(--sub);margin-top:4px">
+        빈 자리가 외롭습니다... 친구 한 명이면 초록불로 변신!
+      </div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<div class="loading">데이터를 불러올 수 없습니다.<br><small>${e.message}</small></div>`;
+  }
+}
+
+// ── Editor Dashboard ──
+async function renderEditor() {
+  const el = document.getElementById('editor');
+  try {
+    const [weekRows, teamRows] = await Promise.all([
+      fetchSheet('에디터크루 현황판', 'A1:E21'),
+      fetchSheet('에디터크루 현황판', 'A22:E35'),
+    ]);
+
+    const bigText = String(weekRows[1]?.[0] || '');
+    const pctText = String(weekRows[1]?.[4] || '');
+    const subtitleText = String(weekRows[3]?.[0] || '');
+    const subtitle2 = String(weekRows[4]?.[0] || '');
+
+    const currentMatch = bigText.match(/([\d,]+)/);
+    const current = currentMatch ? num(currentMatch[1]) : 0;
+    const target = 600;
+    const pct = target > 0 ? (current / target * 100) : 0;
+
+    // Weekly review data (rows 9-20, index 8-19)
+    let weeklyHtml = '';
+    for (let i = 8; i < weekRows.length; i++) {
+      const r = weekRows[i];
+      if (!r || !r[0]) continue;
+      const label = String(r[0]);
+      const wTarget = r[1];
+      const wActual = r[2];
+      const cumul = r[3];
+      const status = String(r[4] || '');
+
+      const isCurrent = status.includes('⏳');
+
+      let sClass = 's-wait';
+      let sText = '-';
+      if (status.includes('🟢')) { sClass = 's-green'; sText = '🟢'; }
+      else if (status.includes('🟡')) { sClass = 's-yellow'; sText = '🟡'; }
+      else if (status.includes('🔴')) { sClass = 's-red'; sText = '🔴'; }
+      else if (status.includes('⏳')) { sClass = 's-wait'; sText = '⏳'; }
+
+      const wActualDisplay = num(wActual) > 0 ? num(wActual).toLocaleString() : '-';
+      const cumulDisplay = cumul && cumul !== '' && num(cumul) > 0 ? num(cumul).toLocaleString() : '';
+
+      weeklyHtml += `<tr class="${isCurrent ? 'current' : ''}">
+        <td style="text-align:left;font-size:11px">${label}</td>
+        <td>${num(wTarget) > 0 ? wTarget : '-'}</td>
+        <td>${wActualDisplay}</td>
+        <td>${cumulDisplay}</td>
+        <td class="${sClass}">${sText}</td>
+      </tr>`;
+    }
+
+    // Team categories
+    const encouragement = String(teamRows[0]?.[0] || '');
+    let greenTeams = '', yellowTeams = '', redTeams = '';
+
+    for (let i = 0; i < teamRows.length; i++) {
+      const text = String(teamRows[i]?.[0] || '');
+      if (text.includes('순조롭게')) { greenTeams = String(teamRows[i+1]?.[0] || ''); }
+      if (text.includes('보통 속도')) { yellowTeams = String(teamRows[i+1]?.[0] || ''); }
+      if (text.includes('아슬아슬')) { redTeams = String(teamRows[i+1]?.[0] || ''); }
+    }
+
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-title">✍️ 시즌 방문리뷰</div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between">
+          <div class="big-num">${current.toLocaleString()} <span>/ ${target.toLocaleString()}</span></div>
+          <div class="pct" style="color:var(--blue)">${pct.toFixed(1)}%</div>
+        </div>
+        <div class="bar-wrap"><div class="bar-fill bar-blue" style="width:${Math.min(pct,100)}%"></div></div>
+        <div class="subtitle">${subtitleText}</div>
+        <div class="subtitle" style="margin-top:2px">${subtitle2}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📈 주차별 리뷰 페이스</div>
+        <table>
+          <tr><th style="text-align:left">주차</th><th>목표</th><th>실적</th><th>누적</th><th>상태</th></tr>
+          ${weeklyHtml}
+        </table>
+      </div>
+
+      <div class="card" style="text-align:center;padding:12px 16px">
+        <div style="font-size:14px;font-weight:600;color:var(--accent)">${encouragement}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">👥 우리 팀은 어디쯤?</div>
+
+        <div class="team-group">
+          <div class="team-label" style="color:var(--green)">🟢 순조롭게 달리는 팀</div>
+          <div class="team-list">${greenTeams || '-'}</div>
+        </div>
+
+        <div class="team-group">
+          <div class="team-label" style="color:#b45309">🟡 보통 속도로 가고 있는 팀</div>
+          <div class="team-list">${yellowTeams || '-'}</div>
+        </div>
+
+        <div class="team-group" style="margin-bottom:0">
+          <div class="team-label" style="color:var(--red)">🔴 아슬아슬한 긴장감을 즐기는 팀</div>
+          <div class="team-list">${redTeams || '-'}</div>
+        </div>
+      </div>
+
+      <div class="card" style="text-align:center">
+        <div style="font-size:13px;color:var(--sub)">📝 1인당 주 1개 리뷰면 충분! 꾸준함이 최고의 무기 💪</div>
+      </div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<div class="loading">데이터를 불러올 수 없습니다.<br><small>${e.message}</small></div>`;
+  }
+}
+
+// ── Load & Refresh ──
+async function loadAll() {
+  const btn = document.getElementById('refreshBtn');
+  btn.innerHTML = '<span class="spin">↻</span>';
+  await Promise.all([renderConquest(), renderEditor()]);
+  btn.innerHTML = '↻';
+  const now = new Date();
+  document.getElementById('updatedAt').textContent =
+    `마지막 업데이트: ${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}`;
+}
+
+document.getElementById('refreshBtn').addEventListener('click', loadAll);
+loadAll();
+
+// Auto-refresh every 5 minutes
+setInterval(loadAll, 5 * 60 * 1000);
+</script>
+</body>
+</html>
