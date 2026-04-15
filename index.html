@@ -124,11 +124,15 @@ function parseStatus(s) {
 async function renderConquest() {
   const el = document.getElementById('conquest');
   try {
-    const rows = await fetchSheet('정복크루 현황판', 'A1:E60');
+    // Fetch summary (small range) and data (full range) separately
+    // gviz skips title rows in large ranges, so we fetch them apart
+    const [summaryRows, rows] = await Promise.all([
+      fetchSheet('정복크루 현황판', 'A1:E5'),
+      fetchSheet('정복크루 현황판', 'A1:E60'),
+    ]);
 
-    // Find data by content (gviz skips empty/merged rows)
-    const bigRow = findRow(rows, t => t.includes('16,000'));
-    const subtitleRow = findRow(rows, t => t.startsWith('남은'));
+    const bigRow = findRow(summaryRows, t => t.includes('16,000')) || findRow(rows, t => t.includes('16,000'));
+    const subtitleRow = findRow(summaryRows, t => t.startsWith('남은')) || findRow(rows, t => t.startsWith('남은'));
     const weekRows = rows.filter(r => r && /^\d+주차/.test(String(r[0])));
     const guestHeaderIdx = rows.findIndex(r => r && String(r[0]) === '장소');
     const guestRows = guestHeaderIdx >= 0
@@ -204,11 +208,14 @@ async function renderConquest() {
 async function renderEditor() {
   const el = document.getElementById('editor');
   try {
-    const rows = await fetchSheet('에디터크루 현황판', 'A1:E35');
+    const [summaryRows, rows] = await Promise.all([
+      fetchSheet('에디터크루 현황판', 'A1:E6'),
+      fetchSheet('에디터크루 현황판', 'A1:E35'),
+    ]);
 
-    const bigRow = findRow(rows, t => t.includes('600'));
-    const subtitleRow = findRow(rows, t => t.startsWith('남은'));
-    const subtitle2Row = findRow(rows, t => t.includes('원래 주당'));
+    const bigRow = findRow(summaryRows, t => t.includes('600')) || findRow(rows, t => t.includes('600'));
+    const subtitleRow = findRow(summaryRows, t => t.startsWith('남은')) || findRow(rows, t => t.startsWith('남은'));
+    const subtitle2Row = findRow(summaryRows, t => t.includes('원래 주당')) || findRow(rows, t => t.includes('원래 주당'));
     const weekRows = rows.filter(r => r && /^\d+주차/.test(String(r[0])));
     const encourageRow = findRow(rows, t => t.includes('마라톤') || t.includes('등속'));
 
