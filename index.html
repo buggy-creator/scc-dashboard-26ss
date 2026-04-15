@@ -77,7 +77,6 @@ tr.current{background:#fef3c7;font-weight:600}
 <script>
 const SHEET_ID = '1ht9h27o5bHTc4RaTazxMFHEjzOce3rFnugzqwGiscns';
 
-// Tab switching
 document.querySelectorAll('.tab').forEach(t => {
   t.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
@@ -87,12 +86,11 @@ document.querySelectorAll('.tab').forEach(t => {
   });
 });
 
-// Fetch from Google Visualization API
 async function fetchSheet(sheetName, range) {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}&range=${encodeURIComponent(range)}`;
   const res = await fetch(url);
   const text = await res.text();
-  const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]+?)\);?\s*$/);
+  const match = text.match(/setResponse\(([\s\S]+?)\);?\s*$/);
   if (!match) throw new Error('Parse error');
   const data = JSON.parse(match[1]);
   return data.table.rows.map(r => (r.c || []).map(c => c ? (c.v ?? '') : ''));
@@ -104,95 +102,77 @@ function num(v) {
   return Number(String(v).replace(/,/g, '')) || 0;
 }
 
+// Find a row where cell[0] matches a test function
+function findRow(rows, test) {
+  return rows.find(r => r && r[0] && test(String(r[0])));
+}
+
 function statusBadge(cls, text) {
   return `<span class="badge b-${cls}">${text}</span>`;
+}
+
+function parseStatus(s) {
+  s = String(s || '');
+  if (s.includes('🟢')) return { cls: 's-green', text: '🟢' };
+  if (s.includes('🟡')) return { cls: 's-yellow', text: '🟡' };
+  if (s.includes('🔴')) return { cls: 's-red', text: '🔴' };
+  if (s.includes('⏳')) return { cls: 's-wait', text: '⏳' };
+  return { cls: 's-wait', text: '-' };
 }
 
 // ── Conquest Dashboard ──
 async function renderConquest() {
   const el = document.getElementById('conquest');
   try {
-    const [weekRows, guestRows] = await Promise.all([
-      fetchSheet('정복크루 현황판', 'A1:E18'),
-      fetchSheet('정복크루 현황판', 'A20:E60'),
-    ]);
+    const rows = await fetchSheet('정복크루 현황판', 'A1:E60');
 
-    // Parse big number from row 2 (index 1)
-    const bigText = String(weekRows[1]?.[0] || '');
-    const pctText = String(weekRows[1]?.[4] || '');
-    const subtitleText = String(weekRows[3]?.[0] || '');
+    // Find data by content (gviz skips empty/merged rows)
+    const bigRow = findRow(rows, t => t.includes('16,000'));
+    const subtitleRow = findRow(rows, t => t.startsWith('남은'));
+    const weekRows = rows.filter(r => r && /^\d+주차/.test(String(r[0])));
+    const guestHeaderIdx = rows.findIndex(r => r && String(r[0]) === '장소');
+    const guestRows = guestHeaderIdx >= 0
+      ? rows.slice(guestHeaderIdx + 1).filter(r => r && /^\d+\/\d+/.test(String(r[0])))
+      : [];
 
-    // Extract current total and target
-    const currentMatch = bigText.match(/([\d,]+)/);
-    const current = currentMatch ? num(currentMatch[1]) : 0;
+    // Big number
+    const current = bigRow ? num(String(bigRow[0]).match(/([\d,]+)/)?.[1]) : 0;
+    const pctVal = bigRow ? String(bigRow[4] || '') : '';
     const target = 16000;
     const pct = target > 0 ? (current / target * 100) : 0;
+    const subtitle = subtitleRow ? String(subtitleRow[0]) : '';
 
-    // Parse weekly data (rows 8-17, index 7-16)
+    // Weekly table
     let weeklyHtml = '';
-    for (let i = 7; i < weekRows.length; i++) {
-      const r = weekRows[i];
-      if (!r || !r[0]) continue;
+    for (const r of weekRows) {
       const label = String(r[0]);
-      const wTarget = r[1];
-      const wActual = r[2];
-      const cumul = r[3];
-      const status = String(r[4] || '');
-
-      const isCurrent = status.includes('⏳');
-      const isCompleted = num(wActual) > 0 || num(wTarget) === 0 && num(wActual) > 0;
-
-      let sClass = 's-wait';
-      let sText = '-';
-      if (status.includes('🟢')) { sClass = 's-green'; sText = '🟢'; }
-      else if (status.includes('🟡')) { sClass = 's-yellow'; sText = '🟡'; }
-      else if (status.includes('🔴')) { sClass = 's-red'; sText = '🔴'; }
-      else if (status.includes('⏳')) { sClass = 's-wait'; sText = '⏳'; }
-
-      const wActualDisplay = num(wActual) > 0 ? num(wActual).toLocaleString() : '-';
-      const cumulDisplay = cumul && cumul !== '' && num(cumul) > 0 ? num(cumul).toLocaleString() : '';
-      const wTargetDisplay = num(wTarget) > 0 ? num(wTarget).toLocaleString() : '-';
-
+      const st = parseStatus(r[4]);
+      const isCurrent = st.text === '⏳' && weekRows.indexOf(r) === weekRows.findIndex(w => parseStatus(w[4]).text === '⏳');
+      const wTarget = num(r[1]) > 0 ? num(r[1]).toLocaleString() : '-';
+      const wActual = num(r[2]) > 0 ? num(r[2]).toLocaleString() : '-';
+      const cumul = r[3] && num(r[3]) > 0 ? num(r[3]).toLocaleString() : '';
       weeklyHtml += `<tr class="${isCurrent ? 'current' : ''}">
-        <td style="text-align:left;font-size:11px">${label}</td>
-        <td>${wTargetDisplay}</td>
-        <td>${wActualDisplay}</td>
-        <td>${cumulDisplay}</td>
-        <td class="${sClass}">${sText}</td>
-      </tr>`;
+        <td style="text-align:left;font-size:11px">${label}${isCurrent ? ' 👈' : ''}</td>
+        <td>${wTarget}</td><td>${wActual}</td><td>${cumul}</td>
+        <td class="${st.cls}">${st.text}</td></tr>`;
     }
 
-    // Parse guest data (skip header rows)
+    // Guest table
     let guestHtml = '';
-    let guestCount = 0;
-    for (let i = 0; i < guestRows.length; i++) {
-      const r = guestRows[i];
-      if (!r || !r[0]) continue;
+    for (const r of guestRows) {
       const place = String(r[0]);
-      // Skip section titles and headers
-      if (place.includes('🚨') || place === '장소' || place.includes('빈 자리') || place.includes('초대장')) continue;
-
       const type = String(r[1] || '');
       const recruit = r[2];
       const applied = r[3];
       const status = String(r[4] || '');
-
-      if (!type || (!type.includes('빅') && !type.includes('스몰'))) continue;
-      guestCount++;
-
-      let bClass = 'b-green';
-      if (status.includes('🔴')) bClass = 'b-red';
-      else if (status.includes('🟡')) bClass = 'b-yellow';
-
-      const shortStatus = status.includes('🔴') ? status.replace('🔴 ', '') : status;
-
+      let bCls = 'green';
+      if (status.includes('🔴')) bCls = 'red';
+      else if (status.includes('🟡')) bCls = 'yellow';
+      const shortStatus = status.replace(/^[🟢🟡🔴]\s*/, '');
       guestHtml += `<tr>
-        <td style="text-align:left">${place}</td>
-        <td>${type}</td>
-        <td>${recruit}</td>
-        <td>${applied}</td>
-        <td>${statusBadge(bClass.replace('b-',''), shortStatus)}</td>
-      </tr>`;
+        <td style="text-align:left">${place}</td><td>${type}</td>
+        <td>${recruit}</td><td>${applied}</td>
+        <td>${statusBadge(bCls, shortStatus || status)}</td></tr>`;
     }
 
     el.innerHTML = `
@@ -203,32 +183,18 @@ async function renderConquest() {
           <div class="pct">${pct.toFixed(1)}%</div>
         </div>
         <div class="bar-wrap"><div class="bar-fill bar-green" style="width:${Math.min(pct,100)}%"></div></div>
-        <div class="subtitle">${subtitleText}</div>
+        <div class="subtitle">${subtitle}</div>
       </div>
-
       <div class="card">
         <div class="card-title">📈 주차별 페이스</div>
-        <table>
-          <tr><th style="text-align:left">주차</th><th>목표</th><th>달성</th><th>누적</th><th>상태</th></tr>
-          ${weeklyHtml}
-        </table>
+        <table><tr><th style="text-align:left">주차</th><th>목표</th><th>달성</th><th>누적</th><th>상태</th></tr>${weeklyHtml}</table>
       </div>
-
       <div class="card">
-        <div class="card-title">🚨 게스트 모집 현황 <span style="font-weight:400;color:var(--sub)">(${guestCount}개 활동)</span></div>
-        <table>
-          <tr><th style="text-align:left">장소</th><th>유형</th><th>모집</th><th>신청</th><th>상태</th></tr>
-          ${guestHtml}
-        </table>
+        <div class="card-title">🚨 게스트 모집 현황 <span style="font-weight:400;color:var(--sub)">(${guestRows.length}개 활동)</span></div>
+        <table><tr><th style="text-align:left">장소</th><th>유형</th><th>모집</th><th>신청</th><th>상태</th></tr>${guestHtml}</table>
       </div>
-
-      <a class="cta" href="https://forms.staircrusher.club/invitation26ss" target="_blank">
-        친구 초대장 보내기 💚
-      </a>
-      <div style="text-align:center;font-size:12px;color:var(--sub);margin-top:4px">
-        빈 자리가 외롭습니다... 친구 한 명이면 초록불로 변신!
-      </div>
-    `;
+      <a class="cta" href="https://forms.staircrusher.club/invitation26ss" target="_blank">친구 초대장 보내기 💚</a>
+      <div style="text-align:center;font-size:12px;color:var(--sub);margin-top:4px">빈 자리가 외롭습니다... 친구 한 명이면 초록불로 변신!</div>`;
   } catch (e) {
     el.innerHTML = `<div class="loading">데이터를 불러올 수 없습니다.<br><small>${e.message}</small></div>`;
   }
@@ -238,62 +204,41 @@ async function renderConquest() {
 async function renderEditor() {
   const el = document.getElementById('editor');
   try {
-    const [weekRows, teamRows] = await Promise.all([
-      fetchSheet('에디터크루 현황판', 'A1:E21'),
-      fetchSheet('에디터크루 현황판', 'A22:E35'),
-    ]);
+    const rows = await fetchSheet('에디터크루 현황판', 'A1:E35');
 
-    const bigText = String(weekRows[1]?.[0] || '');
-    const pctText = String(weekRows[1]?.[4] || '');
-    const subtitleText = String(weekRows[3]?.[0] || '');
-    const subtitle2 = String(weekRows[4]?.[0] || '');
+    const bigRow = findRow(rows, t => t.includes('600'));
+    const subtitleRow = findRow(rows, t => t.startsWith('남은'));
+    const subtitle2Row = findRow(rows, t => t.includes('원래 주당'));
+    const weekRows = rows.filter(r => r && /^\d+주차/.test(String(r[0])));
+    const encourageRow = findRow(rows, t => t.includes('마라톤') || t.includes('등속'));
 
-    const currentMatch = bigText.match(/([\d,]+)/);
-    const current = currentMatch ? num(currentMatch[1]) : 0;
+    const current = bigRow ? num(String(bigRow[0]).match(/([\d,]+)/)?.[1]) : 0;
     const target = 600;
     const pct = target > 0 ? (current / target * 100) : 0;
+    const subtitle = subtitleRow ? String(subtitleRow[0]) : '';
+    const subtitle2 = subtitle2Row ? String(subtitle2Row[0]) : '';
+    const encouragement = encourageRow ? String(encourageRow[0]) : '';
 
-    // Weekly review data (rows 9-20, index 8-19)
-    let weeklyHtml = '';
-    for (let i = 8; i < weekRows.length; i++) {
-      const r = weekRows[i];
-      if (!r || !r[0]) continue;
-      const label = String(r[0]);
-      const wTarget = r[1];
-      const wActual = r[2];
-      const cumul = r[3];
-      const status = String(r[4] || '');
-
-      const isCurrent = status.includes('⏳');
-
-      let sClass = 's-wait';
-      let sText = '-';
-      if (status.includes('🟢')) { sClass = 's-green'; sText = '🟢'; }
-      else if (status.includes('🟡')) { sClass = 's-yellow'; sText = '🟡'; }
-      else if (status.includes('🔴')) { sClass = 's-red'; sText = '🔴'; }
-      else if (status.includes('⏳')) { sClass = 's-wait'; sText = '⏳'; }
-
-      const wActualDisplay = num(wActual) > 0 ? num(wActual).toLocaleString() : '-';
-      const cumulDisplay = cumul && cumul !== '' && num(cumul) > 0 ? num(cumul).toLocaleString() : '';
-
-      weeklyHtml += `<tr class="${isCurrent ? 'current' : ''}">
-        <td style="text-align:left;font-size:11px">${label}</td>
-        <td>${num(wTarget) > 0 ? wTarget : '-'}</td>
-        <td>${wActualDisplay}</td>
-        <td>${cumulDisplay}</td>
-        <td class="${sClass}">${sText}</td>
-      </tr>`;
+    // Find team categories by markers
+    let greenTeams = '', yellowTeams = '', redTeams = '';
+    for (let i = 0; i < rows.length; i++) {
+      const t = String(rows[i]?.[0] || '');
+      if (t.includes('순조롭게') && rows[i+1]) greenTeams = String(rows[i+1][0] || '');
+      if (t.includes('보통 속도') && rows[i+1]) yellowTeams = String(rows[i+1][0] || '');
+      if (t.includes('아슬아슬') && rows[i+1]) redTeams = String(rows[i+1][0] || '');
     }
 
-    // Team categories
-    const encouragement = String(teamRows[0]?.[0] || '');
-    let greenTeams = '', yellowTeams = '', redTeams = '';
-
-    for (let i = 0; i < teamRows.length; i++) {
-      const text = String(teamRows[i]?.[0] || '');
-      if (text.includes('순조롭게')) { greenTeams = String(teamRows[i+1]?.[0] || ''); }
-      if (text.includes('보통 속도')) { yellowTeams = String(teamRows[i+1]?.[0] || ''); }
-      if (text.includes('아슬아슬')) { redTeams = String(teamRows[i+1]?.[0] || ''); }
+    let weeklyHtml = '';
+    for (const r of weekRows) {
+      const label = String(r[0]);
+      const st = parseStatus(r[4]);
+      const isCurrent = st.text === '⏳' && weekRows.indexOf(r) === weekRows.findIndex(w => parseStatus(w[4]).text === '⏳');
+      const wActual = num(r[2]) > 0 ? num(r[2]).toLocaleString() : '-';
+      const cumul = r[3] && num(r[3]) > 0 ? num(r[3]).toLocaleString() : '';
+      weeklyHtml += `<tr class="${isCurrent ? 'current' : ''}">
+        <td style="text-align:left;font-size:11px">${label}${isCurrent ? ' 👈' : ''}</td>
+        <td>${r[1]}</td><td>${wActual}</td><td>${cumul}</td>
+        <td class="${st.cls}">${st.text}</td></tr>`;
     }
 
     el.innerHTML = `
@@ -304,51 +249,39 @@ async function renderEditor() {
           <div class="pct" style="color:var(--blue)">${pct.toFixed(1)}%</div>
         </div>
         <div class="bar-wrap"><div class="bar-fill bar-blue" style="width:${Math.min(pct,100)}%"></div></div>
-        <div class="subtitle">${subtitleText}</div>
+        <div class="subtitle">${subtitle}</div>
         <div class="subtitle" style="margin-top:2px">${subtitle2}</div>
       </div>
-
       <div class="card">
         <div class="card-title">📈 주차별 리뷰 페이스</div>
-        <table>
-          <tr><th style="text-align:left">주차</th><th>목표</th><th>실적</th><th>누적</th><th>상태</th></tr>
-          ${weeklyHtml}
-        </table>
+        <table><tr><th style="text-align:left">주차</th><th>목표</th><th>실적</th><th>누적</th><th>상태</th></tr>${weeklyHtml}</table>
       </div>
-
       <div class="card" style="text-align:center;padding:12px 16px">
         <div style="font-size:14px;font-weight:600;color:var(--accent)">${encouragement}</div>
       </div>
-
       <div class="card">
         <div class="card-title">👥 우리 팀은 어디쯤?</div>
-
         <div class="team-group">
           <div class="team-label" style="color:var(--green)">🟢 순조롭게 달리는 팀</div>
           <div class="team-list">${greenTeams || '-'}</div>
         </div>
-
         <div class="team-group">
           <div class="team-label" style="color:#b45309">🟡 보통 속도로 가고 있는 팀</div>
           <div class="team-list">${yellowTeams || '-'}</div>
         </div>
-
         <div class="team-group" style="margin-bottom:0">
           <div class="team-label" style="color:var(--red)">🔴 아슬아슬한 긴장감을 즐기는 팀</div>
           <div class="team-list">${redTeams || '-'}</div>
         </div>
       </div>
-
       <div class="card" style="text-align:center">
         <div style="font-size:13px;color:var(--sub)">📝 1인당 주 1개 리뷰면 충분! 꾸준함이 최고의 무기 💪</div>
-      </div>
-    `;
+      </div>`;
   } catch (e) {
     el.innerHTML = `<div class="loading">데이터를 불러올 수 없습니다.<br><small>${e.message}</small></div>`;
   }
 }
 
-// ── Load & Refresh ──
 async function loadAll() {
   const btn = document.getElementById('refreshBtn');
   btn.innerHTML = '<span class="spin">↻</span>';
@@ -361,8 +294,6 @@ async function loadAll() {
 
 document.getElementById('refreshBtn').addEventListener('click', loadAll);
 loadAll();
-
-// Auto-refresh every 5 minutes
 setInterval(loadAll, 5 * 60 * 1000);
 </script>
 </body>
