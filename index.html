@@ -37,7 +37,7 @@ tr.current{background:#fef3c7;font-weight:600}
 .b-green{background:#dcfce7;color:#166534}
 .b-yellow{background:#fef9c3;color:#854d0e}
 .b-red{background:#fee2e2;color:#991b1b}
-.cta{display:block;text-align:center;background:linear-gradient(135deg,#0A5FCC,#0C76F7);color:#fff;padding:14px;border-radius:12px;font-size:15px;font-weight:700;text-decoration:none;margin:16px 0 8px;box-shadow:0 2px 8px rgba(16,185,129,.3)}
+.cta{display:block;text-align:center;background:linear-gradient(135deg,#0A5FCC,#0C76F7);color:#fff;padding:14px;border-radius:12px;font-size:15px;font-weight:700;text-decoration:none;margin:16px 0 8px;box-shadow:0 2px 8px rgba(16,185,129,.3);border:none;width:100%;cursor:pointer;font-family:inherit}
 .cta:active{transform:scale(.98)}
 .team-group{margin-bottom:12px}
 .team-label{font-size:13px;font-weight:700;margin-bottom:4px}
@@ -49,6 +49,14 @@ tr.current{background:#fef3c7;font-weight:600}
 @keyframes spin{to{transform:rotate(360deg)}}
 .hidden{display:none}
 .updated{text-align:center;font-size:11px;color:var(--sub);padding:8px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle}
+.dot-green{background:#22c55e}
+.dot-yellow{background:#eab308}
+.dot-red{background:#ef4444}
+.dot-wait{background:#d1d5db}
+.guest-warn{background:#fee2e2}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:12px 24px;border-radius:10px;font-size:13px;font-weight:500;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
 </style>
 </head>
 <body>
@@ -71,11 +79,13 @@ tr.current{background:#fef3c7;font-weight:600}
   <div class="loading" id="loading-c">데이터를 불러오는 중...</div>
 </div>
 
+<div class="toast" id="toast"></div>
 <button class="refresh-btn" id="refreshBtn" title="새로고침">↻</button>
 <div class="updated" id="updatedAt"></div>
 
 <script>
 const SHEET_ID = '1ht9h27o5bHTc4RaTazxMFHEjzOce3rFnugzqwGiscns';
+const SEASON_START = new Date(2026, 2, 16); // 2026-03-16 (Mon)
 
 document.querySelectorAll('.tab').forEach(t => {
   t.addEventListener('click', () => {
@@ -102,7 +112,6 @@ function num(v) {
   return Number(String(v).replace(/,/g, '')) || 0;
 }
 
-// Find a row where cell[0] matches a test function
 function findRow(rows, test) {
   return rows.find(r => r && r[0] && test(String(r[0])));
 }
@@ -113,22 +122,69 @@ function statusBadge(cls, text) {
 
 function parseStatus(s) {
   s = String(s || '');
-  if (s.includes('🟢')) return { cls: 's-green', text: '🟢' };
-  if (s.includes('🟡')) return { cls: 's-yellow', text: '🟡' };
-  if (s.includes('🔴')) return { cls: 's-red', text: '🔴' };
-  if (s.includes('⏳')) return { cls: 's-wait', text: '⏳' };
-  return { cls: 's-wait', text: '-' };
+  // Check by Unicode codepoint for cross-platform emoji reliability
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if (c === 0x1F7E2) return { type:'green', cls:'s-green', html:'<span class="dot dot-green"></span>' };
+    if (c === 0x1F7E1) return { type:'yellow', cls:'s-yellow', html:'<span class="dot dot-yellow"></span>' };
+    if (c === 0x1F534) return { type:'red', cls:'s-red', html:'<span class="dot dot-red"></span>' };
+    if (c === 0x23F3) return { type:'wait', cls:'s-wait', html:'<span class="dot dot-wait"></span>' };
+  }
+  // Fallback: check by emoji literal
+  if (s.includes('🟢')) return { type:'green', cls:'s-green', html:'<span class="dot dot-green"></span>' };
+  if (s.includes('🟡')) return { type:'yellow', cls:'s-yellow', html:'<span class="dot dot-yellow"></span>' };
+  if (s.includes('🔴')) return { type:'red', cls:'s-red', html:'<span class="dot dot-red"></span>' };
+  if (s.includes('⏳')) return { type:'wait', cls:'s-wait', html:'<span class="dot dot-wait"></span>' };
+  return { type:'none', cls:'s-wait', html:'-' };
+}
+
+function getCurrentWeekNum() {
+  const today = new Date();
+  const diff = Math.floor((today - SEASON_START) / 86400000);
+  return Math.max(1, Math.floor(diff / 7) + 1);
+}
+
+function getWeekDateRange(weekNum) {
+  const s = new Date(SEASON_START);
+  s.setDate(s.getDate() + (weekNum - 1) * 7);
+  const e = new Date(s);
+  e.setDate(e.getDate() + 6);
+  const sm = s.getMonth()+1, sd = s.getDate();
+  const em = e.getMonth()+1, ed = e.getDate();
+  return sm === em ? `(${sm}/${sd}~${ed})` : `(${sm}/${sd}~${em}/${ed})`;
+}
+
+function copyInviteUrl() {
+  const url = 'https://forms.staircrusher.club/invitation26ss';
+  navigator.clipboard.writeText(url).then(() => {
+    showToast('초대장 URL이 복사되었어요. 원하는 곳에 붙여넣으세요');
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('초대장 URL이 복사되었어요. 원하는 곳에 붙여넣으세요');
+  });
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
 }
 
 // ── Conquest Dashboard ──
 async function renderConquest() {
   const el = document.getElementById('conquest');
   try {
-    // Fetch summary (small range) and data (full range) separately
-    // gviz skips title rows in large ranges, so we fetch them apart
     const [summaryRows, rows] = await Promise.all([
       fetchSheet('정복크루 현황판', 'A1:E5'),
-      fetchSheet('정복크루 현황판', 'A1:E60'),
+      fetchSheet('정복크루 현황판', 'A1:E100'),
     ]);
 
     const bigRow = findRow(summaryRows, t => t.includes('16,000')) || findRow(rows, t => t.includes('16,000'));
@@ -139,26 +195,29 @@ async function renderConquest() {
       ? rows.slice(guestHeaderIdx + 1).filter(r => r && /^\d+\/\d+/.test(String(r[0])))
       : [];
 
-    // Big number
     const current = bigRow ? num(String(bigRow[0]).match(/([\d,]+)/)?.[1]) : 0;
-    const pctVal = bigRow ? String(bigRow[4] || '') : '';
     const target = 16000;
     const pct = target > 0 ? (current / target * 100) : 0;
     const subtitle = subtitleRow ? String(subtitleRow[0]) : '';
 
-    // Weekly table
+    // Weekly table — current week by date
+    const curWeek = getCurrentWeekNum();
     let weeklyHtml = '';
     for (const r of weekRows) {
       const label = String(r[0]);
+      const weekMatch = label.match(/^(\d+)주차/);
+      const weekNum = weekMatch ? parseInt(weekMatch[1]) : 0;
+      const dateRange = weekNum > 0 ? ' ' + getWeekDateRange(weekNum) : '';
       const st = parseStatus(r[4]);
-      const isCurrent = st.text === '⏳' && weekRows.indexOf(r) === weekRows.findIndex(w => parseStatus(w[4]).text === '⏳');
+      const isCurrent = weekNum === curWeek;
       const wTarget = num(r[1]) > 0 ? num(r[1]).toLocaleString() : '-';
       const wActual = num(r[2]) > 0 ? num(r[2]).toLocaleString() : '-';
       const cumul = r[3] && num(r[3]) > 0 ? num(r[3]).toLocaleString() : '';
+      const displayHtml = isCurrent && num(r[2]) < num(r[1]) ? '<span class="dot dot-wait"></span>' : st.html;
       weeklyHtml += `<tr class="${isCurrent ? 'current' : ''}">
-        <td style="text-align:left;font-size:11px">${label}${isCurrent ? ' 👈' : ''}</td>
+        <td style="text-align:left;font-size:11px">${label}${dateRange}${isCurrent ? ' 👈' : ''}</td>
         <td>${wTarget}</td><td>${wActual}</td><td>${cumul}</td>
-        <td class="${st.cls}">${st.text}</td></tr>`;
+        <td>${displayHtml}</td></tr>`;
     }
 
     // Guest table
@@ -169,11 +228,13 @@ async function renderConquest() {
       const recruit = r[2];
       const applied = r[3];
       const status = String(r[4] || '');
+      const st = parseStatus(status);
       let bCls = 'green';
-      if (status.includes('🔴')) bCls = 'red';
-      else if (status.includes('🟡')) bCls = 'yellow';
-      const shortStatus = status.replace(/^[🟢🟡🔴]\s*/, '');
-      guestHtml += `<tr>
+      if (st.type === 'red') bCls = 'red';
+      else if (st.type === 'yellow') bCls = 'yellow';
+      const shortStatus = status.replace(/^[^\x00-\x7F]+\s*/, '').trim();
+      const isWarn = /부족/.test(status);
+      guestHtml += `<tr class="${isWarn ? 'guest-warn' : ''}">
         <td style="text-align:left">${place}</td><td>${type}</td>
         <td>${recruit}</td><td>${applied}</td>
         <td>${statusBadge(bCls, shortStatus || status)}</td></tr>`;
@@ -191,13 +252,13 @@ async function renderConquest() {
       </div>
       <div class="card">
         <div class="card-title">📈 주차별 페이스</div>
-        <table><tr><th style="text-align:left">주차</th><th>목표</th><th>달성</th><th>누적</th><th>상태</th></tr>${weeklyHtml}</table>
+        <table><tr><th style="text-align:left">주차</th><th>목표</th><th>달성</th><th>누적 달성</th><th>상태</th></tr>${weeklyHtml}</table>
       </div>
       <div class="card">
         <div class="card-title">🚨 게스트 모집 현황 <span style="font-weight:400;color:var(--sub)">(${guestRows.length}개 활동)</span></div>
         <table><tr><th style="text-align:left">장소</th><th>유형</th><th>모집</th><th>신청</th><th>상태</th></tr>${guestHtml}</table>
       </div>
-      <a class="cta" href="https://forms.staircrusher.club/invitation26ss" target="_blank">친구 초대장 보내기 💚</a>
+      <button class="cta" onclick="copyInviteUrl()">친구 초대장 보내기 💚</button>
       <div style="text-align:center;font-size:12px;color:var(--sub);margin-top:4px">빈 자리가 외롭습니다... 친구 한 명이면 초록불로 변신!</div>`;
   } catch (e) {
     el.innerHTML = `<div class="loading">데이터를 불러올 수 없습니다.<br><small>${e.message}</small></div>`;
@@ -226,7 +287,6 @@ async function renderEditor() {
     const subtitle2 = subtitle2Row ? String(subtitle2Row[0]) : '';
     const encouragement = encourageRow ? String(encourageRow[0]) : '';
 
-    // Find team categories by markers
     let greenTeams = '', yellowTeams = '', redTeams = '';
     for (let i = 0; i < rows.length; i++) {
       const t = String(rows[i]?.[0] || '');
@@ -239,13 +299,13 @@ async function renderEditor() {
     for (const r of weekRows) {
       const label = String(r[0]);
       const st = parseStatus(r[4]);
-      const isCurrent = st.text === '⏳' && weekRows.indexOf(r) === weekRows.findIndex(w => parseStatus(w[4]).text === '⏳');
+      const isCurrent = st.type === 'wait' && weekRows.indexOf(r) === weekRows.findIndex(w => parseStatus(w[4]).type === 'wait');
       const wActual = num(r[2]) > 0 ? num(r[2]).toLocaleString() : '-';
       const cumul = r[3] && num(r[3]) > 0 ? num(r[3]).toLocaleString() : '';
       weeklyHtml += `<tr class="${isCurrent ? 'current' : ''}">
         <td style="text-align:left;font-size:11px">${label}${isCurrent ? ' 👈' : ''}</td>
         <td>${r[1]}</td><td>${wActual}</td><td>${cumul}</td>
-        <td class="${st.cls}">${st.text}</td></tr>`;
+        <td>${st.html}</td></tr>`;
     }
 
     el.innerHTML = `
